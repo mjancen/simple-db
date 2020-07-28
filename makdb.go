@@ -1,11 +1,11 @@
 package main
 
 import (
+	"bufio"
+	"errors"
 	"fmt"
 	"os"
-	"bufio"
 	"strings"
-	"errors"
 )
 
 const (
@@ -14,10 +14,46 @@ const (
 	invalidStatement
 )
 
+const (
+	columnUsernameSize = 32
+	columnEmailSize    = 255
+)
+
+const numRowsPerPage = 10
+const maxTableRows = 100
+
+type page struct {
+	rows []row
+}
+
+func newPage() page {
+	p := page{}
+	p.rows = make([]row, 0, numRowsPerPage)
+	return p
+}
+
+func getRow(t *table, rowNum int) *row {
+	pageNum := rowNum / numRowsPerPage
+	rowInPage := rowNum % numRowsPerPage
+	return &(t.pages[pageNum].rows[rowInPage])
+}
+
+type table struct {
+	numRows uint32
+	pages   []page
+}
+
+type row struct {
+	id       uint32
+	username string
+	email    string
+}
+
 type statementType int
 
 type statement struct {
-	sType statementType
+	sType       statementType
+	rowToInsert row
 }
 
 func doMetaCommand(inputCommand string) error {
@@ -35,10 +71,25 @@ func prepareStatement(inputCommand string) (statement, error) {
 		newStatement.sType = selectStatement
 	} else if strings.HasPrefix(inputCommand, "insert") {
 		newStatement.sType = insertStatement
+		n, _ := fmt.Sscanf(
+			inputCommand,
+			"insert %d %s %s",
+			&newStatement.rowToInsert.id,
+			&newStatement.rowToInsert.username,
+			&newStatement.rowToInsert.email)
+		fmt.Printf("row to insert: %v\n", newStatement.rowToInsert)
+
+		if n != 3 {
+			newStatement.sType = invalidStatement
+			errString := fmt.Sprintf("syntax error: %v\n", inputCommand)
+			return newStatement, errors.New(errString)
+		}
 	} else {
+		newStatement.sType = invalidStatement
 		errString := fmt.Sprintf("unrecognised command: %v\n", inputCommand)
-		return statement{sType : invalidStatement}, errors.New(errString)
+		return newStatement, errors.New(errString)
 	}
+	fmt.Printf("New statement: %v\n", newStatement)
 	return newStatement, nil
 }
 
@@ -61,7 +112,7 @@ func main() {
 		if !success {
 			break
 		}
-		
+
 		inputText := strings.TrimSpace(stdinScanner.Text())
 		inputText = strings.ToLower(inputText)
 
@@ -71,7 +122,7 @@ func main() {
 				fmt.Printf("Unrecognised meta-command: %v\n", inputText)
 			}
 		}
-		
+
 		inputStatement, err := prepareStatement(inputText)
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)
