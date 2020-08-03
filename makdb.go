@@ -22,8 +22,18 @@ const (
 const numRowsPerPage = 10
 const maxTableRows = 100
 
+type row struct {
+	id       uint32
+	username string
+	email    string
+}
+
 type page struct {
 	rows []row
+}
+
+func (p *page) appendToPage(r *row) {
+	p.rows = append(p.rows, *r)
 }
 
 func newPage() page {
@@ -32,21 +42,49 @@ func newPage() page {
 	return p
 }
 
-func getRow(t *table, rowNum int) *row {
-	pageNum := rowNum / numRowsPerPage
-	rowInPage := rowNum % numRowsPerPage
-	return &(t.pages[pageNum].rows[rowInPage])
-}
-
 type table struct {
-	numRows uint32
-	pages   []page
+	numRows      int
+	numFullPages int
+	pages        []page
 }
 
-type row struct {
-	id       uint32
-	username string
-	email    string
+func newTable() *table {
+	pTable := new(table)
+	pTable.numRows      = 0
+	pTable.numFullPages = 0
+	pTable.pages = make([]page, maxTableRows)
+
+	for i := 0; i < maxTableRows; i++ {
+		pTable.pages[i] = newPage()
+	}
+
+	return pTable
+}
+
+func (t *table) appendRow(r *row) error {
+	if t.numRows >= maxTableRows {
+		return errors.New("table is full")
+	}
+
+	currentPage := &t.pages[t.numFullPages]
+	currentPage.appendToPage(r)
+	t.numRows++
+	if len(currentPage.rows) >= numRowsPerPage {
+		t.numFullPages++
+	}
+
+	return nil
+}
+
+func (t *table) getRow(rowNum int) *row {
+	pageInd, rowInd := rowNumToIndex(rowNum)
+	return &(t.pages[pageInd].rows[rowInd])
+}
+
+func rowNumToIndex(rowNum int) (int, int) {
+	rowIndex := rowNum % numRowsPerPage
+	pageIndex := rowNum / numRowsPerPage
+	return pageIndex, rowIndex
 }
 
 type statementType int
@@ -77,7 +115,6 @@ func prepareStatement(inputCommand string) (statement, error) {
 			&newStatement.rowToInsert.id,
 			&newStatement.rowToInsert.username,
 			&newStatement.rowToInsert.email)
-		fmt.Printf("row to insert: %v\n", newStatement.rowToInsert)
 
 		if n != 3 {
 			newStatement.sType = invalidStatement
@@ -89,22 +126,52 @@ func prepareStatement(inputCommand string) (statement, error) {
 		errString := fmt.Sprintf("unrecognised command: %v\n", inputCommand)
 		return newStatement, errors.New(errString)
 	}
-	fmt.Printf("New statement: %v\n", newStatement)
 	return newStatement, nil
 }
 
-func executeStatement(st statement) {
+func executeStatement(st *statement, t *table) error {
 	switch st.sType {
 	case selectStatement:
-		fmt.Println("This is a select statement.")
+		err := executeSelect(st, t)
+		if err != nil {
+			return err
+		}
 	case insertStatement:
-		fmt.Println("This is an insert statement.")
+		err := executeInsert(st, t)
+		if err != nil {
+			return err
+		}
 	}
+
+	return nil
+}
+
+func executeInsert(st *statement, t *table) error {
+	err := t.appendRow(&st.rowToInsert)
+	if err != nil {
+		errString := fmt.Sprintf("Error appending to table: %v\n", err)
+		return errors.New(errString)
+	}
+
+	return nil
+}
+
+func executeSelect(st *statement, t *table) error {
+	fmt.Printf("%10s %32s %32s\n", "ID", "Username", "Email")
+	fmt.Println(strings.Repeat("-", 76))
+	for i := 0; i < t.numRows; i++ {
+		pRow := t.getRow(i)
+		fmt.Printf("%10d %32s %32s\n", pRow.id, pRow.username, pRow.email)
+	}
+	return nil
 }
 
 func main() {
 	stdinScanner := bufio.NewScanner(os.Stdin)
 	prompt := "maksql>"
+
+
+	tab := newTable()
 
 	for {
 		fmt.Print(prompt)
@@ -127,9 +194,8 @@ func main() {
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)
 		} else {
-			executeStatement(inputStatement)
+			executeStatement(&inputStatement, tab)
 		}
-
 	}
 
 	if err := stdinScanner.Err(); err != nil {
