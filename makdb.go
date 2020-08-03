@@ -167,14 +167,30 @@ func executeSelect(st *statement, t *table) error {
 }
 
 func main() {
-	stdinScanner := bufio.NewScanner(os.Stdin)
-	prompt := "maksql>"
+	var inputReader *os.File
+	var err error
+	interactive := true
 
+	if len(os.Args) > 1 {
+		inputReader, err = os.Open(os.Args[1])
+		interactive = false
+		if err != nil {
+			fmt.Printf("Failed to open file: %v\n", err)
+		}
+	} else {
+		inputReader = os.Stdin
+	}
+
+	stdinScanner := bufio.NewScanner(inputReader)
+	prompt := "maksql>"
 
 	tab := newTable()
 
 	for {
-		fmt.Print(prompt)
+		if interactive{
+			fmt.Print(prompt)
+		}
+
 		success := stdinScanner.Scan()
 		if !success {
 			break
@@ -182,6 +198,9 @@ func main() {
 
 		inputText := strings.TrimSpace(stdinScanner.Text())
 		inputText = strings.ToLower(inputText)
+		if len(inputText) == 0 {
+			continue
+		}
 
 		if inputText[0] == '.' {
 			err := doMetaCommand(inputText)
